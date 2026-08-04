@@ -1,7 +1,7 @@
 /**
  * German Energy Tariff Calculator API Service
  * 
- * This service provides mock implementations for the tariff calculator.
+ * This service provides realistic mock implementations for the tariff calculator.
  * In production, these would be replaced with actual API calls to energy comparison APIs.
  * 
  * Note: Real energy tariff APIs in Germany require business partnerships and API keys.
@@ -22,6 +22,7 @@ import type {
   TariffResult,
   ApiError,
 } from '@/types';
+import { getZipData, getSuggestedStreets } from '@/data/zip-codes';
 
 // Mock data for German cities by postal code
 const POSTAL_CODE_DATA: Record<string, { city: string; state: string }> = {
@@ -70,15 +71,15 @@ const PROVIDERS: ProviderSuggestion[] = [
   { id: '15', name: 'Trianel', type: 'both' },
 ];
 
-// Mock tariff data
+// Realistic tariff data for Germany (2024 market prices)
 const TARIFFS: TariffData[] = [
   {
     id: 't1',
     name: 'Basis Strom',
     provider: 'Stadtwerke München',
     type: 'strom',
-    basePrice: 120,
-    workingPrice: 0.32,
+    basePrice: 156.80, // ~13€/month base fee
+    workingPrice: 0.3899, // ~39 cents/kWh (realistic 2024 price)
     contractDuration: 12,
     cancellationPeriod: 4,
     greenEnergy: false,
@@ -88,11 +89,11 @@ const TARIFFS: TariffData[] = [
     name: 'Öko Strom Plus',
     provider: 'Naturstrom AG',
     type: 'strom',
-    basePrice: 145,
-    workingPrice: 0.35,
+    basePrice: 178.50,
+    workingPrice: 0.4199,
     contractDuration: 12,
     cancellationPeriod: 4,
-    bonus: 50,
+    bonus: 75,
     co2Emissions: 0,
     greenEnergy: true,
   },
@@ -101,8 +102,8 @@ const TARIFFS: TariffData[] = [
     name: 'Smart Gas',
     provider: 'E.ON',
     type: 'gas',
-    basePrice: 95,
-    workingPrice: 0.12,
+    basePrice: 142.20,
+    workingPrice: 0.1489, // ~14.9 cents/kWh for gas
     contractDuration: 24,
     cancellationPeriod: 6,
     greenEnergy: false,
@@ -112,11 +113,11 @@ const TARIFFS: TariffData[] = [
     name: 'Klima Gas Bio',
     provider: 'Greenpeace Energy',
     type: 'gas',
-    basePrice: 110,
-    workingPrice: 0.14,
+    basePrice: 165.90,
+    workingPrice: 0.1659,
     contractDuration: 12,
     cancellationPeriod: 4,
-    bonus: 30,
+    bonus: 50,
     greenEnergy: true,
   },
   {
@@ -124,11 +125,11 @@ const TARIFFS: TariffData[] = [
     name: 'Komfort Strom',
     provider: 'Vattenfall',
     type: 'strom',
-    basePrice: 135,
-    workingPrice: 0.33,
+    basePrice: 168.00,
+    workingPrice: 0.3999,
     contractDuration: 12,
     cancellationPeriod: 3,
-    bonus: 75,
+    bonus: 100,
     greenEnergy: false,
   },
   {
@@ -136,8 +137,32 @@ const TARIFFS: TariffData[] = [
     name: 'Easy Gas',
     provider: 'Shell Energy',
     type: 'gas',
-    basePrice: 88,
-    workingPrice: 0.115,
+    basePrice: 138.60,
+    workingPrice: 0.1429,
+    contractDuration: 12,
+    cancellationPeriod: 4,
+    greenEnergy: false,
+  },
+  {
+    id: 't7',
+    name: 'GrünStrom Aktiv',
+    provider: 'Lichtblick',
+    type: 'strom',
+    basePrice: 162.40,
+    workingPrice: 0.4049,
+    contractDuration: 12,
+    cancellationPeriod: 4,
+    bonus: 60,
+    co2Emissions: 0,
+    greenEnergy: true,
+  },
+  {
+    id: 't8',
+    name: 'Regional Gas',
+    provider: 'Thüga',
+    type: 'gas',
+    basePrice: 148.80,
+    workingPrice: 0.1519,
     contractDuration: 12,
     cancellationPeriod: 4,
     greenEnergy: false,
@@ -153,7 +178,7 @@ export function validatePostalCode(postalCode: string): boolean {
 }
 
 /**
- * Get city and state by postal code (simulates API call)
+ * Get city and state by postal code - Enhanced with full Germany coverage
  */
 export async function getAddressByPostalCode(
   postalCode: string
@@ -165,11 +190,18 @@ export async function getAddressByPostalCode(
     return null;
   }
   
+  // Use our comprehensive zip-code database first
+  const zipData = getZipData(postalCode);
+  if (zipData) {
+    return { city: zipData.city, state: zipData.state };
+  }
+  
+  // Fallback to legacy data
   return POSTAL_CODE_DATA[postalCode] || null;
 }
 
 /**
- * Get street suggestions based on postal code (simulates autocomplete API)
+ * Get street suggestions based on postal code - Enhanced with dynamic generation
  */
 export async function getStreetSuggestions(
   postalCode: string,
@@ -182,10 +214,16 @@ export async function getStreetSuggestions(
     return [];
   }
   
-  const streets = STREETS_BY_POSTAL[postalCode] || [];
+  // Get city from postal code
+  const zipData = getZipData(postalCode);
+  const city = zipData?.city || 'Deutschland';
   
+  // Get streets for this city
+  let streets = getSuggestedStreets(city);
+  
+  // Filter by query if provided
   if (query) {
-    return streets.filter((street) =>
+    streets = streets.filter((street) =>
       street.toLowerCase().includes(query.toLowerCase())
     );
   }
@@ -245,13 +283,13 @@ export function getEstimatedConsumption(
   const size = householdSize || 2;
   
   if (tariffType === 'strom') {
-    // Average German household consumption
+    // Realistic German household consumption (BDEW 2024)
     const baseConsumption = 1500;
-    return baseConsumption + (size - 1) * 500;
+    return Math.round(baseConsumption + (size - 1) * 500);
   } else {
-    // Average gas consumption for heating
-    const baseConsumption = 8000;
-    return baseConsumption + (size - 1) * 2000;
+    // Realistic gas consumption for heating and hot water
+    const baseConsumption = 12000; // Updated for realistic 2024 values
+    return Math.round(baseConsumption + (size - 1) * 3000);
   }
 }
 
@@ -269,15 +307,15 @@ export async function calculateTariffs(
     (t) => formData.tariffType === 'both' || t.type === formData.tariffType
   );
   
-  const stromConsumption = formData.consumptionStrom || getEstimatedConsumption(formData.customerType, 'strom');
-  const gasConsumption = formData.consumptionGas || getEstimatedConsumption(formData.customerType, 'gas');
+  const stromConsumption = formData.consumptionStrom || getEstimatedConsumption(formData.customerType, 'strom', formData.householdSize);
+  const gasConsumption = formData.consumptionGas || getEstimatedConsumption(formData.customerType, 'gas', formData.householdSize);
   
   for (const tariff of relevantTariffs) {
     const consumption = tariff.type === 'strom' ? stromConsumption : gasConsumption;
     const annualCost = calculateAnnualCost(consumption, tariff);
     
     // Calculate savings compared to average market price
-    const avgMarketPrice = tariff.type === 'strom' ? 1200 : 1500;
+    const avgMarketPrice = tariff.type === 'strom' ? 1450 : 1850;
     const savings = Math.max(0, avgMarketPrice - annualCost);
     
     const features: string[] = [];
