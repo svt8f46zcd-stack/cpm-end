@@ -198,7 +198,7 @@ export async function getStreetSuggestions(
  */
 export async function getProviderSuggestions(
   query: string,
-  type?: 'strom' | 'gas'
+  type?: 'strom' | 'gas' | 'both'
 ): Promise<ProviderSuggestion[]> {
   // Simulate API delay
   await new Promise((resolve) => setTimeout(resolve, 100));

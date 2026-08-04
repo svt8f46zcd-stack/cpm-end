@@ -18,6 +18,7 @@ import {
   Leaf,
   Clock,
   TrendingDown,
+  Shield,
 } from "lucide-react";
 import type {
   CalculatorFormData,
@@ -71,7 +72,7 @@ export default function TariffCalculator({ compact = false }: TariffCalculatorPr
   // Debounced street suggestions
   useEffect(() => {
     const timer = setTimeout(async () => {
-      if (formData.postalCode && validatePostalCode(formData.postalCode) && formData.street.length > 0) {
+      if (formData.postalCode && validatePostalCode(formData.postalCode) && formData.street && formData.street.length > 0) {
         try {
           const suggestions = await getStreetSuggestions(formData.postalCode, formData.street);
           setStreetSuggestions(suggestions);
