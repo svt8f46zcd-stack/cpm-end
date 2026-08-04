@@ -31,6 +31,7 @@ export interface CalculatorFormData {
   currentProvider?: string;
   customerType: 'private' | 'business';
   tariffType: 'strom' | 'gas' | 'both';
+  householdSize: number;
   email?: string;
   phone?: string;
   name?: string;
