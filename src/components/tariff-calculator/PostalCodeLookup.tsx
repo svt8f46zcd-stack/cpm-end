@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, ChevronDown, Loader2, MapPin, Search, X } from "lucide-react";
+import { CheckCircle, ChevronDown, Loader2, MapPin, Search, X } from "lucide-react";
 
 interface Locality {
   name: string;
@@ -177,7 +177,7 @@ export default function PostalCodeLookup() {
 
             <div id="cpm-postal-status" className="mt-3 min-h-6 text-sm" aria-live="polite">
               {selectedLocality ? (
-                <div className="flex items-center gap-2 font-semibold text-emerald-700"><CheckCircle2 className="h-4 w-4" aria-hidden="true" /> {selectedLocality.postalCode} · {selectedLocality.name}</div>
+                <div className="flex items-center gap-2 font-semibold text-emerald-700"><CheckCircle className="h-4 w-4" aria-hidden="true" /> {selectedLocality.postalCode} · {selectedLocality.name}</div>
               ) : error ? <span className="text-red-600">{error}</span> : postalCode.length > 0 && postalCode.length < 5 ? <span className="text-slate-500">Noch {5 - postalCode.length} Ziffern</span> : null}
             </div>
           </div>
