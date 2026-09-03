@@ -12,13 +12,13 @@ import {
   CheckCircle,
   AlertCircle,
   Loader2,
-  ChevronDown,
   X,
   Euro,
   Leaf,
   Clock,
   TrendingDown,
   Shield,
+  Navigation,
 } from "lucide-react";
 import type {
   CalculatorFormData,
@@ -34,11 +34,41 @@ import {
   calculateTariffs,
   detectProviderByLocation,
   formatCurrency,
-  formatNumber,
 } from "@/lib/tariff-api";
 
 interface TariffCalculatorProps {
   compact?: boolean;
+}
+
+interface DetectedLocation {
+  postalCode: string;
+  city?: string;
+  accuracy?: number;
+}
+
+async function reverseGeocode(latitude: number, longitude: number): Promise<DetectedLocation | null> {
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}&zoom=18&addressdetails=1`,
+      {
+        headers: {
+          Accept: "application/json",
+        },
+      }
+    );
+
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const postalCode = data?.address?.postcode;
+    const city = data?.address?.city || data?.address?.town || data?.address?.municipality || data?.address?.village;
+
+    if (!postalCode || !/^\d{5}$/.test(postalCode)) return null;
+
+    return { postalCode, city };
+  } catch {
+    return null;
+  }
 }
 
 export default function TariffCalculator({ compact = false }: TariffCalculatorProps) {
@@ -56,8 +86,9 @@ export default function TariffCalculator({ compact = false }: TariffCalculatorPr
   });
 
   const [errors, setErrors] = useState<ApiError[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
   const [isCalculating, setIsCalculating] = useState(false);
+  const [isDetectingLocation, setIsDetectingLocation] = useState(false);
+  const [locationMessage, setLocationMessage] = useState<string>("");
   const [results, setResults] = useState<TariffResult[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [streetSuggestions, setStreetSuggestions] = useState<string[]>([]);
@@ -68,38 +99,39 @@ export default function TariffCalculator({ compact = false }: TariffCalculatorPr
 
   const streetInputRef = useRef<HTMLInputElement>(null);
   const providerInputRef = useRef<HTMLInputElement>(null);
+  const locationRequestRef = useRef(0);
 
-  // Debounced street suggestions
   useEffect(() => {
     const timer = setTimeout(async () => {
-      if (formData.postalCode && validatePostalCode(formData.postalCode) && formData.street && formData.street.length > 0) {
+      if (formData.postalCode && validatePostalCode(formData.postalCode) && formData.street) {
         try {
           const suggestions = await getStreetSuggestions(formData.postalCode, formData.street);
           setStreetSuggestions(suggestions);
           setShowStreetDropdown(suggestions.length > 0);
-        } catch (error) {
-          console.error("Error fetching street suggestions:", error);
+        } catch {
+          setStreetSuggestions([]);
+          setShowStreetDropdown(false);
         }
       } else {
         setStreetSuggestions([]);
         setShowStreetDropdown(false);
       }
-    }, 300);
+    }, 250);
 
     return () => clearTimeout(timer);
   }, [formData.postalCode, formData.street]);
 
-  // Debounced provider suggestions
   useEffect(() => {
     const timer = setTimeout(async () => {
       if (formData.currentProvider && formData.currentProvider.length >= 2) {
         try {
-          const type = formData.tariffType === "both" ? undefined : (formData.tariffType as "strom" | "gas");
+          const type = formData.tariffType === "both" ? undefined : formData.tariffType;
           const suggestions = await getProviderSuggestions(formData.currentProvider, type);
           setProviderSuggestions(suggestions);
           setShowProviderDropdown(suggestions.length > 0);
-        } catch (error) {
-          console.error("Error fetching provider suggestions:", error);
+        } catch {
+          setProviderSuggestions([]);
+          setShowProviderDropdown(false);
         }
       } else {
         setProviderSuggestions([]);
@@ -110,36 +142,38 @@ export default function TariffCalculator({ compact = false }: TariffCalculatorPr
     return () => clearTimeout(timer);
   }, [formData.currentProvider, formData.tariffType]);
 
-  // Auto-detect city when postal code changes
   useEffect(() => {
     const autoDetectCity = async () => {
-      if (formData.postalCode && validatePostalCode(formData.postalCode)) {
-        try {
-          const addressData = await getAddressByPostalCode(formData.postalCode);
-          if (addressData) {
-            setFormData((prev) => ({ ...prev, city: addressData.city }));
-            
-            // Try to detect provider based on location
+      if (!validatePostalCode(formData.postalCode)) {
+        setFormData((prev) => (prev.city ? { ...prev, city: "" } : prev));
+        return;
+      }
+
+      try {
+        const addressData = await getAddressByPostalCode(formData.postalCode);
+        if (addressData) {
+          setFormData((prev) => ({ ...prev, city: addressData.city }));
+
+          if (!formData.currentProvider) {
             const detectedProvider = await detectProviderByLocation(formData.postalCode);
-            if (detectedProvider && !formData.currentProvider) {
+            if (detectedProvider) {
               setFormData((prev) => ({ ...prev, currentProvider: detectedProvider.name }));
             }
           }
-        } catch (error) {
-          console.error("Error detecting city:", error);
         }
+      } catch {
+        // Manual input remains available when lookup is unavailable.
       }
     };
 
     autoDetectCity();
   }, [formData.postalCode]);
 
-  // Auto-calculate consumption based on household size
   useEffect(() => {
     if (formData.householdSize && formData.customerType === "private") {
       const baseStrom = 1500 + (formData.householdSize - 1) * 500;
       const baseGas = 8000 + (formData.householdSize - 1) * 2000;
-      
+
       setFormData((prev) => ({
         ...prev,
         consumptionStrom: prev.consumptionStrom || baseStrom,
@@ -151,8 +185,6 @@ export default function TariffCalculator({ compact = false }: TariffCalculatorPr
   const handleFieldChange = useCallback(
     <K extends keyof CalculatorFormData>(field: K, value: CalculatorFormData[K]) => {
       setFormData((prev) => ({ ...prev, [field]: value }));
-      
-      // Clear error for this field when user starts typing
       if (errors.some((e) => e.field === field)) {
         setErrors((prev) => prev.filter((e) => e.field !== field));
       }
@@ -162,6 +194,48 @@ export default function TariffCalculator({ compact = false }: TariffCalculatorPr
 
   const handleFieldBlur = useCallback((field: string) => {
     setTouchedFields((prev) => new Set(prev).add(field));
+  }, []);
+
+  const detectLocation = useCallback(() => {
+    if (!navigator.geolocation) {
+      setLocationMessage("Standorterkennung wird von diesem Gerät nicht unterstützt.");
+      return;
+    }
+
+    const requestId = ++locationRequestRef.current;
+    setIsDetectingLocation(true);
+    setLocationMessage("");
+    setErrors((prev) => prev.filter((error) => error.field !== "postalCode"));
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        if (requestId !== locationRequestRef.current) return;
+
+        const location = await reverseGeocode(position.coords.latitude, position.coords.longitude);
+        if (!location) {
+          setLocationMessage("Standort konnte nicht eindeutig in eine PLZ umgewandelt werden. Bitte PLZ eingeben.");
+          setIsDetectingLocation(false);
+          return;
+        }
+
+        setFormData((prev) => ({
+          ...prev,
+          postalCode: location.postalCode,
+          city: location.city || prev.city,
+        }));
+        setLocationMessage(location.city ? `${location.postalCode} · ${location.city}` : location.postalCode);
+        setIsDetectingLocation(false);
+      },
+      () => {
+        setLocationMessage("Standortzugriff wurde nicht freigegeben. Sie können die PLZ direkt eingeben.");
+        setIsDetectingLocation(false);
+      },
+      {
+        enableHighAccuracy: false,
+        timeout: 10000,
+        maximumAge: 300000,
+      }
+    );
   }, []);
 
   const selectStreet = useCallback((street: string) => {
@@ -177,7 +251,6 @@ export default function TariffCalculator({ compact = false }: TariffCalculatorPr
 
   const validateForm = useCallback((): boolean => {
     const newErrors: ApiError[] = [];
-
     if (!formData.postalCode || !validatePostalCode(formData.postalCode)) {
       newErrors.push({
         code: "INVALID_POSTAL_CODE",
@@ -185,39 +258,22 @@ export default function TariffCalculator({ compact = false }: TariffCalculatorPr
         field: "postalCode",
       });
     }
-
     if (!formData.customerType) {
-      newErrors.push({
-        code: "MISSING_CUSTOMER_TYPE",
-        message: "Bitte wählen Sie einen Kundentyp aus.",
-        field: "customerType",
-      });
+      newErrors.push({ code: "MISSING_CUSTOMER_TYPE", message: "Bitte wählen Sie einen Kundentyp aus.", field: "customerType" });
     }
-
     if (!formData.tariffType) {
-      newErrors.push({
-        code: "MISSING_TARIFF_TYPE",
-        message: "Bitte wählen Sie eine Tarifart aus.",
-        field: "tariffType",
-      });
+      newErrors.push({ code: "MISSING_TARIFF_TYPE", message: "Bitte wählen Sie eine Tarifart aus.", field: "tariffType" });
     }
-
     setErrors(newErrors);
+    if (newErrors.length) {
+      setTouchedFields((prev) => new Set(prev).add("postalCode"));
+    }
     return newErrors.length === 0;
   }, [formData]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!validateForm()) {
-      // Scroll to first error
-      const firstErrorField = errors[0]?.field;
-      if (firstErrorField) {
-        const element = document.getElementById(firstErrorField);
-        element?.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
-      return;
-    }
+    if (!validateForm()) return;
 
     setIsCalculating(true);
     setShowResults(false);
@@ -226,13 +282,8 @@ export default function TariffCalculator({ compact = false }: TariffCalculatorPr
       const tariffResults = await calculateTariffs(formData);
       setResults(tariffResults);
       setShowResults(true);
-    } catch (error) {
-      setErrors([
-        {
-          code: "CALCULATION_ERROR",
-          message: "Bei der Berechnung ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.",
-        },
-      ]);
+    } catch {
+      setErrors([{ code: "CALCULATION_ERROR", message: "Bei der Berechnung ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut." }]);
     } finally {
       setIsCalculating(false);
     }
@@ -255,6 +306,7 @@ export default function TariffCalculator({ compact = false }: TariffCalculatorPr
     setShowResults(false);
     setErrors([]);
     setTouchedFields(new Set());
+    setLocationMessage("");
   };
 
   const getFieldError = (field: string): string | undefined => {
@@ -262,47 +314,50 @@ export default function TariffCalculator({ compact = false }: TariffCalculatorPr
     return errors.find((e) => e.field === field)?.message;
   };
 
+  const postalError = getFieldError("postalCode");
+  const locationButton = (
+    <button
+      type="button"
+      onClick={detectLocation}
+      disabled={isDetectingLocation}
+      className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1.5 rounded-lg border border-accent-200 bg-accent-50 px-3 py-2 text-sm font-semibold text-accent-700 transition hover:bg-accent-100 disabled:cursor-wait disabled:opacity-60 dark:border-accent-800 dark:bg-accent-900/30 dark:text-accent-300"
+      aria-label="Standort erkennen"
+    >
+      {isDetectingLocation ? <Loader2 className="h-4 w-4 animate-spin" /> : <Navigation className="h-4 w-4" />}
+      <span className="hidden sm:inline">Standort</span>
+    </button>
+  );
+
   if (compact) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 md:p-8">
-        <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-          Kostenlose Tarifprüfung
-        </h3>
-        <p className="text-gray-600 dark:text-gray-400 mb-6">
-          Füllen Sie das Formular aus und wir melden uns innerhalb von 24 Stunden.
-        </p>
+      <div className="rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800 md:p-8">
+        <h3 className="mb-2 text-2xl font-bold text-gray-900 dark:text-white">Kostenlose Tarifprüfung</h3>
+        <p className="mb-6 text-gray-600 dark:text-gray-400">PLZ automatisch erkennen oder direkt eingeben.</p>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Postleitzahl *
-            </label>
-            <input
-              type="text"
-              required
-              pattern="[0-9]{5}"
-              maxLength={5}
-              value={formData.postalCode}
-              onChange={(e) => handleFieldChange("postalCode", e.target.value.replace(/\D/g, ""))}
-              onBlur={() => handleFieldBlur("postalCode")}
-              className={`w-full px-4 py-3 border ${getFieldError("postalCode") ? "border-red-500" : "border-gray-300 dark:border-gray-600"} rounded-lg focus:ring-2 focus:ring-accent-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-colors`}
-              placeholder="12345"
-            />
-            {getFieldError("postalCode") && (
-              <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
-                <AlertCircle className="w-4 h-4" />
-                {getFieldError("postalCode")}
-              </p>
-            )}
+            <label htmlFor="compact-postalCode" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Postleitzahl *</label>
+            <div className="relative">
+              <input
+                type="text"
+                id="compact-postalCode"
+                required
+                inputMode="numeric"
+                autoComplete="postal-code"
+                pattern="[0-9]{5}"
+                maxLength={5}
+                value={formData.postalCode}
+                onChange={(e) => handleFieldChange("postalCode", e.target.value.replace(/\D/g, ""))}
+                onBlur={() => handleFieldBlur("postalCode")}
+                className={`w-full rounded-lg border px-4 py-3 pr-28 transition-colors focus:border-transparent focus:ring-2 focus:ring-accent-500 dark:bg-gray-700 dark:text-white ${postalError ? "border-red-500" : "border-gray-300 dark:border-gray-600"}`}
+                placeholder="12345"
+              />
+              {locationButton}
+            </div>
+            {locationMessage && <p className="mt-2 text-xs text-accent-700 dark:text-accent-300">{locationMessage}</p>}
+            {postalError && <p className="mt-1 flex items-center gap-1 text-sm text-red-600"><AlertCircle className="h-4 w-4" />{postalError}</p>}
           </div>
           <button type="submit" className="w-full btn-primary" disabled={isCalculating}>
-            {isCalculating ? (
-              <span className="flex items-center justify-center gap-2">
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Wird berechnet...
-              </span>
-            ) : (
-              "Kostenlos prüfen lassen"
-            )}
+            {isCalculating ? <span className="flex items-center justify-center gap-2"><Loader2 className="h-5 w-5 animate-spin" />Wird berechnet...</span> : "Kostenlos prüfen lassen"}
           </button>
         </form>
       </div>
@@ -310,32 +365,19 @@ export default function TariffCalculator({ compact = false }: TariffCalculatorPr
   }
 
   return (
-    <section id="tarifrechner" className="py-16 md:py-24 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-12">
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white mb-4">
-            Live Tarifrechner
-          </h2>
-          <p className="text-xl text-gray-600 dark:text-gray-400 max-w-3xl mx-auto">
-            Berechnen Sie Ihr Einsparpotenzial in wenigen Sekunden. 
-            Unsere intelligenten Felder füllen sich automatisch aus.
-          </p>
+    <section id="tarifrechner" className="bg-gradient-to-br from-gray-50 to-gray-100 py-16 dark:from-gray-900 dark:to-gray-800 md:py-24">
+      <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+        <div className="mb-12 text-center">
+          <h2 className="mb-4 text-3xl font-bold text-gray-900 dark:text-white md:text-4xl">Live Tarifrechner</h2>
+          <p className="mx-auto max-w-3xl text-xl text-gray-600 dark:text-gray-400">PLZ erkennen lassen oder direkt eingeben. Ort und verfügbare Informationen werden automatisch ergänzt.</p>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden">
-          {/* Progress indicator */}
+        <div className="overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-gray-800">
           {!showResults && (
-            <div className="bg-gray-50 dark:bg-gray-900 px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+            <div className="border-b border-gray-200 bg-gray-50 px-6 py-4 dark:border-gray-700 dark:bg-gray-900">
               <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-600 dark:text-gray-400">
-                  Schritt 1 von 2: Ihre Daten
-                </span>
-                <div className="flex items-center gap-2">
-                  <div className="w-24 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                    <div className="w-1/2 h-full bg-accent-500 rounded-full"></div>
-                  </div>
-                  <span className="text-accent-500 font-semibold">50%</span>
-                </div>
+                <span className="text-gray-600 dark:text-gray-400">Schritt 1 von 2: Ihre Daten</span>
+                <div className="flex items-center gap-2"><div className="h-2 w-24 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700"><div className="h-full w-1/2 rounded-full bg-accent-500" /></div><span className="font-semibold text-accent-500">50%</span></div>
               </div>
             </div>
           )}
@@ -343,427 +385,110 @@ export default function TariffCalculator({ compact = false }: TariffCalculatorPr
           <div className="p-6 md:p-8">
             {!showResults ? (
               <form onSubmit={handleSubmit} className="space-y-6">
-                {/* Personal Information */}
-                <div className="grid md:grid-cols-2 gap-6">
-                  {/* Postal Code */}
+                <div className="grid gap-6 md:grid-cols-2">
                   <div>
-                    <label htmlFor="postalCode" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      <MapPin className="w-4 h-4 inline mr-1" />
-                      Postleitzahl *
-                    </label>
-                    <input
-                      type="text"
-                      id="postalCode"
-                      maxLength={5}
-                      value={formData.postalCode}
-                      onChange={(e) => handleFieldChange("postalCode", e.target.value.replace(/\D/g, ""))}
-                      onBlur={() => handleFieldBlur("postalCode")}
-                      className={`w-full px-4 py-3 border ${getFieldError("postalCode") ? "border-red-500" : "border-gray-300 dark:border-gray-600"} rounded-lg focus:ring-2 focus:ring-accent-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-colors`}
-                      placeholder="12345"
-                    />
-                    {getFieldError("postalCode") && (
-                      <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
-                        <AlertCircle className="w-4 h-4" />
-                        {getFieldError("postalCode")}
-                      </p>
-                    )}
-                    {formData.city && (
-                      <p className="mt-1 text-sm text-green-600 flex items-center gap-1">
-                        <CheckCircle className="w-4 h-4" />
-                        {formData.city}
-                      </p>
-                    )}
+                    <label htmlFor="postalCode" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"><MapPin className="mr-1 inline h-4 w-4" />Postleitzahl *</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        id="postalCode"
+                        required
+                        inputMode="numeric"
+                        autoComplete="postal-code"
+                        maxLength={5}
+                        value={formData.postalCode}
+                        onChange={(e) => handleFieldChange("postalCode", e.target.value.replace(/\D/g, ""))}
+                        onBlur={() => handleFieldBlur("postalCode")}
+                        className={`w-full rounded-lg border px-4 py-3 pr-28 transition-colors focus:border-transparent focus:ring-2 focus:ring-accent-500 dark:bg-gray-700 dark:text-white ${postalError ? "border-red-500" : "border-gray-300 dark:border-gray-600"}`}
+                        placeholder="12345"
+                      />
+                      {locationButton}
+                    </div>
+                    <div className="mt-2 flex min-h-5 items-center gap-2">
+                      {isDetectingLocation && <><Loader2 className="h-4 w-4 animate-spin text-accent-500" /><span className="text-xs text-gray-500 dark:text-gray-400">Standort wird ermittelt…</span></>}
+                      {!isDetectingLocation && locationMessage && <><CheckCircle className="h-4 w-4 text-green-500" /><span className="text-xs text-green-700 dark:text-green-400">{locationMessage}</span></>}
+                      {!isDetectingLocation && !locationMessage && formData.city && <><CheckCircle className="h-4 w-4 text-green-500" /><span className="text-xs text-green-700 dark:text-green-400">{formData.city} automatisch erkannt</span></>}
+                    </div>
+                    {postalError && <p className="mt-1 flex items-center gap-1 text-sm text-red-600"><AlertCircle className="h-4 w-4" />{postalError}</p>}
                   </div>
 
-                  {/* Street */}
                   <div className="relative">
-                    <label htmlFor="street" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      <Home className="w-4 h-4 inline mr-1" />
-                      Straße
-                    </label>
-                    <input
-                      ref={streetInputRef}
-                      type="text"
-                      id="street"
-                      value={formData.street}
-                      onChange={(e) => handleFieldChange("street", e.target.value)}
-                      onFocus={() => formData.postalCode && validatePostalCode(formData.postalCode) && setShowStreetDropdown(true)}
-                      onBlur={() => setTimeout(() => setShowStreetDropdown(false), 200)}
-                      className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-accent-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-colors"
-                      placeholder="Automatische Vervollständigung"
-                    />
-                    {showStreetDropdown && streetSuggestions.length > 0 && (
-                      <div className="absolute z-20 w-full mt-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                        {streetSuggestions.map((street, index) => (
-                          <button
-                            key={index}
-                            type="button"
-                            onClick={() => selectStreet(street)}
-                            className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors flex items-center gap-2"
-                          >
-                            <MapPin className="w-4 h-4 text-gray-400" />
-                            {street}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    <label htmlFor="street" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"><Home className="mr-1 inline h-4 w-4" />Straße</label>
+                    <input ref={streetInputRef} type="text" id="street" autoComplete="street-address" value={formData.street} onChange={(e) => handleFieldChange("street", e.target.value)} onFocus={() => formData.postalCode && validatePostalCode(formData.postalCode) && setShowStreetDropdown(streetSuggestions.length > 0)} onBlur={() => setTimeout(() => setShowStreetDropdown(false), 200)} className="w-full rounded-lg border border-gray-300 px-4 py-3 transition-colors focus:border-transparent focus:ring-2 focus:ring-accent-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="Automatische Vervollständigung" />
+                    {showStreetDropdown && streetSuggestions.length > 0 && <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-600 dark:bg-gray-700">{streetSuggestions.map((street, index) => <button key={`${street}-${index}`} type="button" onClick={() => selectStreet(street)} className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-600"><MapPin className="h-4 w-4 text-gray-400" />{street}</button>)}</div>}
                   </div>
 
-                  {/* House Number */}
                   <div>
-                    <label htmlFor="houseNumber" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Hausnummer
-                    </label>
-                    <input
-                      type="text"
-                      id="houseNumber"
-                      value={formData.houseNumber}
-                      onChange={(e) => handleFieldChange("houseNumber", e.target.value)}
-                      className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-accent-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-colors"
-                      placeholder="12a"
-                    />
+                    <label htmlFor="houseNumber" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Hausnummer</label>
+                    <input type="text" id="houseNumber" autoComplete="address-line2" value={formData.houseNumber} onChange={(e) => handleFieldChange("houseNumber", e.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-3 transition-colors focus:border-transparent focus:ring-2 focus:ring-accent-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="12a" />
                   </div>
 
-                  {/* City (auto-filled) */}
                   <div>
-                    <label htmlFor="city" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Ort
-                    </label>
-                    <input
-                      type="text"
-                      id="city"
-                      value={formData.city || ""}
-                      readOnly
-                      className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed"
-                      placeholder="Wird automatisch ausgefüllt"
-                    />
+                    <label htmlFor="city" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Ort</label>
+                    <input type="text" id="city" value={formData.city || ""} readOnly className="w-full cursor-not-allowed rounded-lg border border-gray-300 bg-gray-50 px-4 py-3 text-gray-600 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-400" placeholder="Wird automatisch ausgefüllt" />
                   </div>
                 </div>
 
-                {/* Customer Type & Tariff Type */}
-                <div className="grid md:grid-cols-2 gap-6">
-                  {/* Customer Type */}
+                <div className="grid gap-6 md:grid-cols-2">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      <Users className="w-4 h-4 inline mr-1" />
-                      Kundentyp *
-                    </label>
+                    <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"><Users className="mr-1 inline h-4 w-4" />Kundentyp *</label>
                     <div className="flex gap-3">
-                      <button
-                        type="button"
-                        onClick={() => handleFieldChange("customerType", "private")}
-                        className={`flex-1 px-4 py-3 rounded-lg border-2 transition-all flex items-center justify-center gap-2 ${
-                          formData.customerType === "private"
-                            ? "border-accent-500 bg-accent-50 dark:bg-accent-900/20 text-accent-600"
-                            : "border-gray-200 dark:border-gray-700 hover:border-gray-300"
-                        }`}
-                      >
-                        <Users className="w-5 h-5" />
-                        <span>Privat</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleFieldChange("customerType", "business")}
-                        className={`flex-1 px-4 py-3 rounded-lg border-2 transition-all flex items-center justify-center gap-2 ${
-                          formData.customerType === "business"
-                            ? "border-accent-500 bg-accent-50 dark:bg-accent-900/20 text-accent-600"
-                            : "border-gray-200 dark:border-gray-700 hover:border-gray-300"
-                        }`}
-                      >
-                        <Building2 className="w-5 h-5" />
-                        <span>Gewerbe</span>
-                      </button>
+                      <button type="button" onClick={() => handleFieldChange("customerType", "private")} className={`flex-1 rounded-lg border-2 px-4 py-3 transition-all ${formData.customerType === "private" ? "border-accent-500 bg-accent-50 text-accent-600 dark:bg-accent-900/20" : "border-gray-200 dark:border-gray-700"}`}><Users className="mr-2 inline h-5 w-5" />Privat</button>
+                      <button type="button" onClick={() => handleFieldChange("customerType", "business")} className={`flex-1 rounded-lg border-2 px-4 py-3 transition-all ${formData.customerType === "business" ? "border-accent-500 bg-accent-50 text-accent-600 dark:bg-accent-900/20" : "border-gray-200 dark:border-gray-700"}`}><Building2 className="mr-2 inline h-5 w-5" />Gewerbe</button>
                     </div>
                   </div>
 
-                  {/* Tariff Type */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      <Zap className="w-4 h-4 inline mr-1" />
-                      Tarifart *
-                    </label>
-                    <div className="flex gap-3">
-                      <button
-                        type="button"
-                        onClick={() => handleFieldChange("tariffType", "strom")}
-                        className={`flex-1 px-4 py-3 rounded-lg border-2 transition-all flex items-center justify-center gap-2 ${
-                          formData.tariffType === "strom"
-                            ? "border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-600"
-                            : "border-gray-200 dark:border-gray-700 hover:border-gray-300"
-                        }`}
-                      >
-                        <Zap className="w-5 h-5" />
-                        <span>Strom</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleFieldChange("tariffType", "gas")}
-                        className={`flex-1 px-4 py-3 rounded-lg border-2 transition-all flex items-center justify-center gap-2 ${
-                          formData.tariffType === "gas"
-                            ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-600"
-                            : "border-gray-200 dark:border-gray-700 hover:border-gray-300"
-                        }`}
-                      >
-                        <Flame className="w-5 h-5" />
-                        <span>Gas</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleFieldChange("tariffType", "both")}
-                        className={`flex-1 px-4 py-3 rounded-lg border-2 transition-all flex items-center justify-center gap-2 ${
-                          formData.tariffType === "both"
-                            ? "border-green-500 bg-green-50 dark:bg-green-900/20 text-green-600"
-                            : "border-gray-200 dark:border-gray-700 hover:border-gray-300"
-                        }`}
-                      >
-                        <Euro className="w-5 h-5" />
-                        <span>Kombi</span>
-                      </button>
+                    <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"><Zap className="mr-1 inline h-4 w-4" />Tarifart *</label>
+                    <div className="grid grid-cols-3 gap-3">
+                      <button type="button" onClick={() => handleFieldChange("tariffType", "strom")} className={`rounded-lg border-2 px-3 py-3 transition-all ${formData.tariffType === "strom" ? "border-yellow-500 bg-yellow-50 text-yellow-600 dark:bg-yellow-900/20" : "border-gray-200 dark:border-gray-700"}`}><Zap className="mx-auto mb-1 h-5 w-5" /><span className="text-sm">Strom</span></button>
+                      <button type="button" onClick={() => handleFieldChange("tariffType", "gas")} className={`rounded-lg border-2 px-3 py-3 transition-all ${formData.tariffType === "gas" ? "border-blue-500 bg-blue-50 text-blue-600 dark:bg-blue-900/20" : "border-gray-200 dark:border-gray-700"}`}><Flame className="mx-auto mb-1 h-5 w-5" /><span className="text-sm">Gas</span></button>
+                      <button type="button" onClick={() => handleFieldChange("tariffType", "both")} className={`rounded-lg border-2 px-3 py-3 transition-all ${formData.tariffType === "both" ? "border-green-500 bg-green-50 text-green-600 dark:bg-green-900/20" : "border-gray-200 dark:border-gray-700"}`}><Euro className="mx-auto mb-1 h-5 w-5" /><span className="text-sm">Kombi</span></button>
                     </div>
                   </div>
                 </div>
 
-                {/* Household Size & Consumption */}
-                {formData.customerType === "private" && (
-                  <div className="grid md:grid-cols-2 gap-6">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        <Users className="w-4 h-4 inline mr-1" />
-                        Personen im Haushalt
-                      </label>
-                      <div className="flex items-center gap-4">
-                        <input
-                          type="range"
-                          min="1"
-                          max="10"
-                          value={formData.householdSize}
-                          onChange={(e) => handleFieldChange("householdSize", parseInt(e.target.value))}
-                          className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-accent-500"
-                        />
-                        <span className="text-2xl font-bold text-gray-900 dark:text-white w-12 text-center">
-                          {formData.householdSize}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                {formData.customerType === "private" && <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"><Users className="mr-1 inline h-4 w-4" />Personen im Haushalt</label>
+                  <div className="flex items-center gap-4"><input type="range" min="1" max="10" value={formData.householdSize} onChange={(e) => handleFieldChange("householdSize", parseInt(e.target.value, 10))} className="h-2 flex-1 cursor-pointer appearance-none rounded-lg bg-gray-200 accent-accent-500 dark:bg-gray-700" /><span className="w-12 text-center text-2xl font-bold text-gray-900 dark:text-white">{formData.householdSize}</span></div>
+                </div>}
 
-                {/* Consumption Inputs */}
-                <div className="grid md:grid-cols-2 gap-6">
-                  {(formData.tariffType === "strom" || formData.tariffType === "both") && (
-                    <div>
-                      <label htmlFor="consumptionStrom" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        <Zap className="w-4 h-4 inline mr-1" />
-                        Jahresverbrauch Strom (kWh)
-                      </label>
-                      <input
-                        type="number"
-                        id="consumptionStrom"
-                        value={formData.consumptionStrom || ""}
-                        onChange={(e) => handleFieldChange("consumptionStrom", parseInt(e.target.value) || undefined)}
-                        className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-accent-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-colors"
-                        placeholder="Auto-berechnet"
-                      />
-                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                        Basierend auf {formData.householdSize} Personen
-                      </p>
-                    </div>
-                  )}
-
-                  {(formData.tariffType === "gas" || formData.tariffType === "both") && (
-                    <div>
-                      <label htmlFor="consumptionGas" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        <Flame className="w-4 h-4 inline mr-1" />
-                        Jahresverbrauch Gas (kWh)
-                      </label>
-                      <input
-                        type="number"
-                        id="consumptionGas"
-                        value={formData.consumptionGas || ""}
-                        onChange={(e) => handleFieldChange("consumptionGas", parseInt(e.target.value) || undefined)}
-                        className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-accent-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-colors"
-                        placeholder="Auto-berechnet"
-                      />
-                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                        Basierend auf {formData.householdSize} Personen
-                      </p>
-                    </div>
-                  )}
+                <div className="grid gap-6 md:grid-cols-2">
+                  {(formData.tariffType === "strom" || formData.tariffType === "both") && <div><label htmlFor="consumptionStrom" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"><Zap className="mr-1 inline h-4 w-4" />Jahresverbrauch Strom (kWh)</label><input type="number" id="consumptionStrom" min="0" value={formData.consumptionStrom || ""} onChange={(e) => handleFieldChange("consumptionStrom", parseInt(e.target.value, 10) || undefined)} className="w-full rounded-lg border border-gray-300 px-4 py-3 dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="Auto-berechnet" /><p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Basierend auf {formData.householdSize} Personen</p></div>}
+                  {(formData.tariffType === "gas" || formData.tariffType === "both") && <div><label htmlFor="consumptionGas" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"><Flame className="mr-1 inline h-4 w-4" />Jahresverbrauch Gas (kWh)</label><input type="number" id="consumptionGas" min="0" value={formData.consumptionGas || ""} onChange={(e) => handleFieldChange("consumptionGas", parseInt(e.target.value, 10) || undefined)} className="w-full rounded-lg border border-gray-300 px-4 py-3 dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="Auto-berechnet" /><p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Basierend auf {formData.householdSize} Personen</p></div>}
                 </div>
 
-                {/* Current Provider */}
                 <div className="relative">
-                  <label htmlFor="currentProvider" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    <Search className="w-4 h-4 inline mr-1" />
-                    Aktueller Energieversorger
-                  </label>
+                  <label htmlFor="currentProvider" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"><Search className="mr-1 inline h-4 w-4" />Aktueller Energieversorger</label>
                   <div className="relative">
-                    <input
-                      ref={providerInputRef}
-                      type="text"
-                      id="currentProvider"
-                      value={formData.currentProvider}
-                      onChange={(e) => handleFieldChange("currentProvider", e.target.value)}
-                      onFocus={() => setShowProviderDropdown(true)}
-                      onBlur={() => setTimeout(() => setShowProviderDropdown(false), 200)}
-                      className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-accent-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-colors pr-10"
-                      placeholder="z.B. Stadtwerke München, E.ON"
-                    />
-                    {formData.currentProvider && (
-                      <button
-                        type="button"
-                        onClick={() => handleFieldChange("currentProvider", "")}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                      >
-                        <X className="w-5 h-5" />
-                      </button>
-                    )}
+                    <input ref={providerInputRef} type="text" id="currentProvider" value={formData.currentProvider} onChange={(e) => handleFieldChange("currentProvider", e.target.value)} onFocus={() => setShowProviderDropdown(providerSuggestions.length > 0)} onBlur={() => setTimeout(() => setShowProviderDropdown(false), 200)} className="w-full rounded-lg border border-gray-300 px-4 py-3 pr-10 focus:border-transparent focus:ring-2 focus:ring-accent-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="z.B. Stadtwerke München, E.ON" />
+                    {formData.currentProvider && <button type="button" onClick={() => handleFieldChange("currentProvider", "")} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"><X className="h-5 w-5" /></button>}
                   </div>
-                  {showProviderDropdown && providerSuggestions.length > 0 && (
-                    <div className="absolute z-20 w-full mt-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg max-h-64 overflow-y-auto">
-                      {providerSuggestions.map((provider) => (
-                        <button
-                          key={provider.id}
-                          type="button"
-                          onClick={() => selectProvider(provider.name)}
-                          className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors flex items-center gap-2"
-                        >
-                          {provider.type === "strom" && <Zap className="w-4 h-4 text-yellow-500" />}
-                          {provider.type === "gas" && <Flame className="w-4 h-4 text-blue-500" />}
-                          {provider.type === "both" && <Euro className="w-4 h-4 text-green-500" />}
-                          {provider.name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    Optional – hilft bei der besseren Beratung
-                  </p>
+                  {showProviderDropdown && providerSuggestions.length > 0 && <div className="absolute z-20 mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-600 dark:bg-gray-700">{providerSuggestions.map((provider) => <button key={provider.id} type="button" onClick={() => selectProvider(provider.name)} className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-600">{provider.type === "strom" && <Zap className="h-4 w-4 text-yellow-500" />}{provider.type === "gas" && <Flame className="h-4 w-4 text-blue-500" />}{provider.type === "both" && <Euro className="h-4 w-4 text-green-500" />}{provider.name}</button>)}</div>}
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Optional · hilft bei der besseren Beratung</p>
                 </div>
 
-                {/* Submit Button */}
-                <button
-                  type="submit"
-                  disabled={isCalculating}
-                  className="w-full btn-primary text-lg py-4 flex items-center justify-center gap-2"
-                >
-                  {isCalculating ? (
-                    <>
-                      <Loader2 className="w-6 h-6 animate-spin" />
-                      <span>Berechne beste Tarife...</span>
-                    </>
-                  ) : (
-                    <>
-                      <TrendingDown className="w-6 h-6" />
-                      <span>Jetzt Einsparpotenzial berechnen</span>
-                    </>
-                  )}
-                </button>
-
-                <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
-                  🔒 Ihre Daten sind sicher. Wir geben keine Informationen an Dritte weiter.
-                </p>
+                <button type="submit" disabled={isCalculating} className="flex w-full items-center justify-center gap-2 btn-primary py-4 text-lg">{isCalculating ? <><Loader2 className="h-6 w-6 animate-spin" /><span>Berechne beste Tarife...</span></> : <><TrendingDown className="h-6 w-6" /><span>Jetzt Einsparpotenzial berechnen</span></>}</button>
+                <p className="text-center text-xs text-gray-500 dark:text-gray-400">🔒 Ihre Daten werden vertraulich behandelt.</p>
               </form>
             ) : (
-              /* Results Section */
               <div className="space-y-6">
-                <div className="text-center mb-8">
-                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-                    Ihre persönlichen Ersparnisse
-                  </h3>
-                  <p className="text-gray-600 dark:text-gray-400">
-                    Basierend auf Ihren Angaben für {formData.city || formData.postalCode}
-                  </p>
+                <div className="mb-8 text-center"><h3 className="mb-2 text-2xl font-bold text-gray-900 dark:text-white">Ihre persönlichen Ersparnisse</h3><p className="text-gray-600 dark:text-gray-400">Basierend auf Ihren Angaben für {formData.city || formData.postalCode}</p></div>
+                <div className="mb-8 grid gap-4 md:grid-cols-3">
+                  {results.slice(0, 3).map((result, index) => <div key={result.tariff.id} className={`relative rounded-xl border-2 p-6 ${index === 0 ? "border-green-500 bg-green-50 dark:bg-green-900/20" : "border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800"}`}>{index === 0 && <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-green-500 px-3 py-1 text-sm font-semibold text-white">Bester Tarif</div>}<div className="text-center"><p className="mb-1 text-sm text-gray-600 dark:text-gray-400">{result.tariff.provider}</p><p className="mb-3 font-semibold text-gray-900 dark:text-white">{result.tariff.name}</p><div className="mb-1 text-3xl font-bold text-green-600">{formatCurrency(result.savings)}</div><p className="mb-3 text-sm text-gray-600 dark:text-gray-400">Ersparnis pro Jahr</p><div className="text-lg font-semibold text-gray-900 dark:text-white">{formatCurrency(result.monthlyCost)}<span className="text-sm text-gray-500">/Monat</span></div></div><ul className="mt-4 space-y-2">{result.features.map((feature, i) => <li key={i} className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400"><CheckCircle className="h-4 w-4 shrink-0 text-green-500" />{feature}</li>)}</ul></div>)}
                 </div>
-
-                <div className="grid md:grid-cols-3 gap-4 mb-8">
-                  {results.slice(0, 3).map((result, index) => (
-                    <div
-                      key={result.tariff.id}
-                      className={`relative rounded-xl p-6 border-2 transition-all ${
-                        index === 0
-                          ? "border-green-500 bg-green-50 dark:bg-green-900/20"
-                          : "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800"
-                      }`}
-                    >
-                      {index === 0 && (
-                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-green-500 text-white px-3 py-1 rounded-full text-sm font-semibold">
-                          Bester Tarif
-                        </div>
-                      )}
-                      <div className="text-center">
-                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">{result.tariff.provider}</p>
-                        <p className="font-semibold text-gray-900 dark:text-white mb-3">{result.tariff.name}</p>
-                        <div className="text-3xl font-bold text-green-600 mb-1">
-                          {formatCurrency(result.savings)}
-                        </div>
-                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">Ersparnis pro Jahr</p>
-                        <div className="text-lg font-semibold text-gray-900 dark:text-white">
-                          {formatCurrency(result.monthlyCost)}<span className="text-sm text-gray-500">/Monat</span>
-                        </div>
-                      </div>
-                      <ul className="mt-4 space-y-2">
-                        {result.features.map((feature, i) => (
-                          <li key={i} className="text-sm text-gray-600 dark:text-gray-400 flex items-center gap-2">
-                            <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
-                            {feature}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                  <a href="#kontakt" className="btn-primary text-center">
-                    Jetzt wechseln & sparen
-                  </a>
-                  <button
-                    type="button"
-                    onClick={resetCalculator}
-                    className="btn-secondary text-center"
-                  >
-                    Neue Berechnung
-                  </button>
-                </div>
-
-                <div className="mt-8 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
-                  <div className="flex items-start gap-3">
-                    <Leaf className="w-6 h-6 text-blue-600 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <h4 className="font-semibold text-gray-900 dark:text-white mb-1">
-                        Nachhaltigkeit zählt
-                      </h4>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">
-                        Viele unserer Tarife bieten 100% Ökostrom oder klimaneutrales Gas. 
-                        Fragen Sie uns nach den umweltfreundlichsten Optionen!
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                <div className="flex flex-col justify-center gap-4 sm:flex-row"><a href="#kontakt" className="btn-primary text-center">Jetzt wechseln & sparen</a><button type="button" onClick={resetCalculator} className="btn-secondary text-center">Neue Berechnung</button></div>
+                <div className="mt-8 rounded-xl bg-blue-50 p-4 dark:bg-blue-900/20"><div className="flex items-start gap-3"><Leaf className="mt-0.5 h-6 w-6 shrink-0 text-blue-600" /><div><h4 className="mb-1 font-semibold text-gray-900 dark:text-white">Nachhaltigkeit zählt</h4><p className="text-sm text-gray-600 dark:text-gray-400">Viele unserer Tarife bieten 100% Ökostrom oder klimaneutrales Gas. Fragen Sie uns nach den umweltfreundlichsten Optionen!</p></div></div></div>
               </div>
             )}
           </div>
         </div>
 
-        {/* Trust indicators */}
-        <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-          <div className="flex flex-col items-center">
-            <CheckCircle className="w-8 h-8 text-green-500 mb-2" />
-            <span className="text-sm text-gray-600 dark:text-gray-400">Kostenlos & unverbindlich</span>
-          </div>
-          <div className="flex flex-col items-center">
-            <Clock className="w-8 h-8 text-blue-500 mb-2" />
-            <span className="text-sm text-gray-600 dark:text-gray-400">Berechnung in Sekunden</span>
-          </div>
-          <div className="flex flex-col items-center">
-            <Shield className="w-8 h-8 text-purple-500 mb-2" />
-            <span className="text-sm text-gray-600 dark:text-gray-400">Datenschutz garantiert</span>
-          </div>
-          <div className="flex flex-col items-center">
-            <TrendingDown className="w-8 h-8 text-green-500 mb-2" />
-            <span className="text-sm text-gray-600 dark:text-gray-400">Bis zu 500€ sparen</span>
-          </div>
+        <div className="mt-8 grid grid-cols-2 gap-4 text-center md:grid-cols-4">
+          <div className="flex flex-col items-center"><CheckCircle className="mb-2 h-8 w-8 text-green-500" /><span className="text-sm text-gray-600 dark:text-gray-400">Kostenlos & unverbindlich</span></div>
+          <div className="flex flex-col items-center"><Clock className="mb-2 h-8 w-8 text-blue-500" /><span className="text-sm text-gray-600 dark:text-gray-400">Berechnung in Sekunden</span></div>
+          <div className="flex flex-col items-center"><Shield className="mb-2 h-8 w-8 text-purple-500" /><span className="text-sm text-gray-600 dark:text-gray-400">Datenschutz garantiert</span></div>
+          <div className="flex flex-col items-center"><TrendingDown className="mb-2 h-8 w-8 text-green-500" /><span className="text-sm text-gray-600 dark:text-gray-400">Bis zu 500€ sparen</span></div>
         </div>
       </div>
     </section>
