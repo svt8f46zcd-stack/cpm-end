@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, CheckCircle, MapPin, ShieldCheck, Sparkles, Zap } from "lucide-react";
+import { ArrowRight, CheckCircle, MapPin, Shield, Sparkles, Zap } from "lucide-react";
 
 export default function Hero() {
   return (
@@ -48,7 +48,7 @@ export default function Hero() {
                 <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-accent-300"><Zap className="h-4 w-4" /> Tarifcheck</div>
                 <h2 className="text-2xl font-extrabold tracking-tight sm:text-3xl">In wenigen Sekunden starten</h2>
               </div>
-              <div className="hidden rounded-xl bg-emerald-400/10 p-3 text-emerald-300 sm:block"><ShieldCheck className="h-6 w-6" /></div>
+              <div className="hidden rounded-xl bg-emerald-400/10 p-3 text-emerald-300 sm:block"><Shield className="h-6 w-6" /></div>
             </div>
 
             <div className="space-y-3">
