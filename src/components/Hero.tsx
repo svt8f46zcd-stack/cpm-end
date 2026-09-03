@@ -1,117 +1,83 @@
 "use client";
 
-import { Zap, CheckCircle } from "lucide-react";
+import { ArrowRight, CheckCircle, MapPin, ShieldCheck, Sparkles, Zap } from "lucide-react";
 
 export default function Hero() {
   return (
-    <section className="pt-24 md:pt-32 pb-16 md:pb-24 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid lg:grid-cols-2 gap-12 items-center">
-          {/* Left Content */}
-          <div className="text-center lg:text-left">
-            <div className="inline-flex items-center space-x-2 bg-accent-500/10 text-accent-600 dark:text-accent-500 px-4 py-2 rounded-full text-sm font-semibold mb-6">
-              <Zap className="w-4 h-4" />
-              <span>Kostenlose Energieberatung</span>
-            </div>
-            
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-gray-900 dark:text-white leading-tight mb-6">
-              Schluss mit zu hohen{" "}
-              <span className="text-accent-500">Strom-</span> und{" "}
-              <span className="text-primary-600">Gaspreisen</span>
-            </h1>
-            
-            <p className="text-xl text-gray-600 dark:text-gray-300 mb-8 max-w-2xl mx-auto lg:mx-0">
-              Wir optimieren Ihre Tarife kostenlos! Unabhängige Beratung für 
-              Privat- und Geschäftskunden in Deutschland. Sparen Sie bis zu 
-              500€ pro Jahr ohne Aufwand.
-            </p>
+    <section className="relative isolate overflow-hidden bg-slate-950 pt-28 text-white md:pt-36">
+      <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_75%_20%,rgba(14,165,233,0.18),transparent_34%),radial-gradient(circle_at_15%_80%,rgba(37,99,235,0.18),transparent_30%)]" />
+      <div className="absolute right-[-10%] top-[-20%] -z-10 h-[32rem] w-[32rem] rounded-full bg-accent-500/10 blur-3xl" />
 
-            <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
-              <a href="#kontakt" className="btn-primary text-center">
-                Jetzt Beratung anfordern
-              </a>
-              <a href="#vorteile" className="btn-secondary text-center">
-                Mehr erfahren
-              </a>
-            </div>
-
-            <div className="mt-8 flex flex-wrap gap-4 justify-center lg:justify-start">
-              <div className="flex items-center space-x-2 text-gray-600 dark:text-gray-400">
-                <CheckCircle className="w-5 h-5 text-green-500" />
-                <span className="text-sm">Kostenlos & unverbindlich</span>
-              </div>
-              <div className="flex items-center space-x-2 text-gray-600 dark:text-gray-400">
-                <CheckCircle className="w-5 h-5 text-green-500" />
-                <span className="text-sm">Unabhängige Beratung</span>
-              </div>
-              <div className="flex items-center space-x-2 text-gray-600 dark:text-gray-400">
-                <CheckCircle className="w-5 h-5 text-green-500" />
-                <span className="text-sm">Bis zu 500€ sparen</span>
-              </div>
-            </div>
+      <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 pb-16 sm:px-6 md:pb-24 lg:grid-cols-[1.05fr_.95fr] lg:px-8 lg:pb-28">
+        <div>
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent-400/20 bg-accent-400/10 px-4 py-2 text-sm font-semibold text-accent-200">
+            <Sparkles className="h-4 w-4" aria-hidden="true" />
+            Kostenlose Energieberatung
           </div>
 
-          {/* Right Content - Form Preview */}
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 md:p-8">
-            <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-              Kostenlose Tarifprüfung
-            </h3>
-            <p className="text-gray-600 dark:text-gray-400 mb-6">
-              Füllen Sie das Formular aus und wir melden uns innerhalb von 24 Stunden.
-            </p>
-            <form className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Name *
-                </label>
-                <input
-                  type="text"
-                  required
-                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-accent-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                  placeholder="Ihr vollständiger Name"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Telefonnummer *
-                </label>
-                <input
-                  type="tel"
-                  required
-                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-accent-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                  placeholder="+49 ..."
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Postleitzahl *
-                </label>
-                <input
-                  type="text"
-                  required
-                  pattern="[0-9]{5}"
-                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-accent-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                  placeholder="12345"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Aktueller Versorger
-                </label>
-                <input
-                  type="text"
-                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-accent-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                  placeholder="z.B. Stadtwerke München"
-                />
-              </div>
-              <button type="submit" className="w-full btn-primary">
-                Kostenlos prüfen lassen
-              </button>
-            </form>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-4 text-center">
-              Ihre Daten sind sicher. Wir geben keine Informationen an Dritte weiter.
-            </p>
+          <h1 className="max-w-4xl text-4xl font-black leading-[1.05] tracking-tight sm:text-5xl lg:text-7xl">
+            Bezahlen Sie noch zu viel für <span className="text-accent-400">Strom & Gas?</span>
+          </h1>
+          <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300 sm:text-xl">
+            Wir prüfen Ihren Tarif, zeigen Ihnen Ihr Einsparpotenzial und begleiten Sie persönlich beim Wechsel. Kostenlos, transparent und ohne unnötigen Aufwand.
+          </p>
+
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+            <a href="#tarifrechner" className="inline-flex items-center justify-center gap-2 rounded-xl bg-accent-500 px-6 py-4 text-base font-extrabold text-white shadow-xl shadow-accent-500/20 transition hover:-translate-y-0.5 hover:bg-accent-600 focus:outline-none focus:ring-2 focus:ring-accent-300 focus:ring-offset-2 focus:ring-offset-slate-950">
+              Tarif kostenlos prüfen <ArrowRight className="h-5 w-5" aria-hidden="true" />
+            </a>
+            <a href="#ablauf" className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-6 py-4 text-base font-bold text-white transition hover:bg-white/10">
+              So funktioniert es
+            </a>
           </div>
+
+          <div className="mt-8 grid gap-3 sm:grid-cols-3">
+            {['Kostenlos & unverbindlich', 'Persönliche Beratung', 'Privat & Gewerbe'].map((item) => (
+              <div key={item} className="flex items-center gap-2 text-sm text-slate-300">
+                <CheckCircle className="h-4 w-4 shrink-0 text-emerald-400" aria-hidden="true" />{item}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="relative">
+          <div className="absolute -inset-4 rounded-[2rem] bg-accent-500/10 blur-2xl" />
+          <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.07] p-5 shadow-2xl backdrop-blur-xl sm:p-7">
+            <div className="mb-6 flex items-start justify-between gap-4">
+              <div>
+                <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-accent-300"><Zap className="h-4 w-4" /> Tarifcheck</div>
+                <h2 className="text-2xl font-extrabold tracking-tight sm:text-3xl">In wenigen Sekunden starten</h2>
+              </div>
+              <div className="hidden rounded-xl bg-emerald-400/10 p-3 text-emerald-300 sm:block"><ShieldCheck className="h-6 w-6" /></div>
+            </div>
+
+            <div className="space-y-3">
+              <a href="#tarifrechner" className="group flex items-center gap-4 rounded-2xl border border-white/10 bg-white/5 p-4 transition hover:border-accent-400/40 hover:bg-white/10">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent-500/15 text-accent-300"><MapPin className="h-5 w-5" /></span>
+                <span className="min-w-0 flex-1"><span className="block text-sm font-bold">PLZ eingeben oder Standort erkennen</span><span className="block text-xs text-slate-400">Ort wird automatisch ergänzt</span></span>
+                <ArrowRight className="h-5 w-5 text-slate-500 transition group-hover:translate-x-1 group-hover:text-accent-300" />
+              </a>
+              <div className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/5 p-4">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-500/15 text-blue-300"><Zap className="h-5 w-5" /></span>
+                <span><span className="block text-sm font-bold">Strom, Gas oder beides</span><span className="block text-xs text-slate-400">Passend zu Ihrem Bedarf</span></span>
+              </div>
+              <div className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/5 p-4">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-300"><CheckCircle className="h-5 w-5" /></span>
+                <span><span className="block text-sm font-bold">Einsparpotenzial erhalten</span><span className="block text-xs text-slate-400">Danach auf Wunsch persönliche Beratung</span></span>
+              </div>
+            </div>
+
+            <a href="#tarifrechner" className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-white px-5 py-4 text-center font-extrabold text-slate-950 transition hover:bg-slate-100">Jetzt Tarifcheck starten <ArrowRight className="h-5 w-5" /></a>
+            <p className="mt-4 text-center text-xs text-slate-500">Keine Verpflichtung · Ihre Angaben werden vertraulich behandelt</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="border-y border-white/10 bg-white/[0.03]">
+        <div className="mx-auto grid max-w-7xl grid-cols-2 divide-x divide-white/10 px-4 sm:px-6 lg:grid-cols-4 lg:px-8">
+          {[['24/7', 'Online starten'], ['100%', 'kostenlos prüfen'], ['1', 'Ansprechpartner'], ['DE', 'Privat & Gewerbe']].map(([value, label]) => (
+            <div key={label} className="px-3 py-5 text-center sm:py-6"><div className="text-xl font-black text-white sm:text-2xl">{value}</div><div className="mt-1 text-xs text-slate-400 sm:text-sm">{label}</div></div>
+          ))}
         </div>
       </div>
     </section>
