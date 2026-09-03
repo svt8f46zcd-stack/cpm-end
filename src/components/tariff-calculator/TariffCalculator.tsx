@@ -18,7 +18,6 @@ import {
   Clock,
   TrendingDown,
   Shield,
-  Navigation,
 } from "lucide-react";
 import type {
   CalculatorFormData,
@@ -43,31 +42,35 @@ interface TariffCalculatorProps {
 interface DetectedLocation {
   postalCode: string;
   city?: string;
-  accuracy?: number;
 }
 
 async function reverseGeocode(latitude: number, longitude: number): Promise<DetectedLocation | null> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 8000);
+
   try {
     const response = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}&zoom=18&addressdetails=1`,
+      `/api/location/reverse?lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}`,
       {
-        headers: {
-          Accept: "application/json",
-        },
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+        signal: controller.signal,
       }
     );
 
     if (!response.ok) return null;
 
     const data = await response.json();
-    const postalCode = data?.address?.postcode;
-    const city = data?.address?.city || data?.address?.town || data?.address?.municipality || data?.address?.village;
+    const postalCode = typeof data?.postalCode === "string" ? data.postalCode : "";
+    const city = typeof data?.city === "string" ? data.city : undefined;
 
-    if (!postalCode || !/^\d{5}$/.test(postalCode)) return null;
+    if (!/^\d{5}$/.test(postalCode)) return null;
 
     return { postalCode, city };
   } catch {
     return null;
+  } finally {
+    window.clearTimeout(timeout);
   }
 }
 
@@ -323,7 +326,7 @@ export default function TariffCalculator({ compact = false }: TariffCalculatorPr
       className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1.5 rounded-lg border border-accent-200 bg-accent-50 px-3 py-2 text-sm font-semibold text-accent-700 transition hover:bg-accent-100 disabled:cursor-wait disabled:opacity-60 dark:border-accent-800 dark:bg-accent-900/30 dark:text-accent-300"
       aria-label="Standort erkennen"
     >
-      {isDetectingLocation ? <Loader2 className="h-4 w-4 animate-spin" /> : <Navigation className="h-4 w-4" />}
+      {isDetectingLocation ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
       <span className="hidden sm:inline">Standort</span>
     </button>
   );
@@ -455,7 +458,7 @@ export default function TariffCalculator({ compact = false }: TariffCalculatorPr
 
                 <div className="grid gap-6 md:grid-cols-2">
                   {(formData.tariffType === "strom" || formData.tariffType === "both") && <div><label htmlFor="consumptionStrom" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"><Zap className="mr-1 inline h-4 w-4" />Jahresverbrauch Strom (kWh)</label><input type="number" id="consumptionStrom" min="0" value={formData.consumptionStrom || ""} onChange={(e) => handleFieldChange("consumptionStrom", parseInt(e.target.value, 10) || undefined)} className="w-full rounded-lg border border-gray-300 px-4 py-3 dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="Auto-berechnet" /><p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Basierend auf {formData.householdSize} Personen</p></div>}
-                  {(formData.tariffType === "gas" || formData.tariffType === "both") && <div><label htmlFor="consumptionGas" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"><Flame className="mr-1 inline h-4 w-4" />Jahresverbrauch Gas (kWh)</label><input type="number" id="consumptionGas" min="0" value={formData.consumptionGas || ""} onChange={(e) => handleFieldChange("consumptionGas", parseInt(e.target.value, 10) || undefined)} className="w-full rounded-lg border border-gray-300 px-4 py-3 dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="Auto-berechnet" /><p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Basierend auf {formData.householdSize} Personen</p></div>}
+                  {(formData.tariffType === "gas" || formData.tariffType === "both") && <div><label htmlFor="consumptionGas" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"><Flame className="mr-1 inline h-4 w-4" />Jahresverbrauch Gas (kWh)</label><input type="number" id="consumptionGas" min="0" value={formData.consumptionGas || ""} onChange={(e) => handleFieldChange("consumptionGas", parseInt(e.target.value, 10) || undefined)} className="w-full rounded-lg border border-gray-300 px-4 py-3 dark:border-gray-600 dark:text-white" placeholder="Auto-berechnet" /><p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Basierend auf {formData.householdSize} Personen</p></div>}
                 </div>
 
                 <div className="relative">
