@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, CheckCircle, MapPin, Shield, Sparkles, Zap } from "lucide-react";
+import { ArrowRight, CheckCircle, MapPin, Shield, Star, Zap } from "lucide-react";
 
 export default function Hero() {
   return (
@@ -11,7 +11,7 @@ export default function Hero() {
       <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 pb-16 sm:px-6 md:pb-24 lg:grid-cols-[1.05fr_.95fr] lg:px-8 lg:pb-28">
         <div>
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent-400/20 bg-accent-400/10 px-4 py-2 text-sm font-semibold text-accent-200">
-            <Sparkles className="h-4 w-4" aria-hidden="true" />
+            <Star className="h-4 w-4" aria-hidden="true" />
             Kostenlose Energieberatung
           </div>
 
